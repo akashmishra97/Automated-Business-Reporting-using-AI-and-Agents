@@ -1,0 +1,69 @@
+# Sensitive Configuration Files
+*.env
+.env.local
+.env.production
+.env.development
+
+# Credentials and API Keys
+credentials.json
+api_keys.txt
+secrets.json
+*.key
+*.pem
+
+# Database Files
+*.db
+*.sqlite
+*.sqlite3
+
+# Log Files
+*.log
+logs/
+log/
+
+# Temporary Files
+*.tmp
+*.temp
+.tmp/
+.temp/
+
+# IDE Files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS Files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# n8n Specific
+.n8n/
+n8n-data/
+
+# Backup Files
+*.bak
+*.backup
+*_backup.*
+
+# Personal Information
+personal_data/
+user_data/
+emails.txt
+contacts.txt
+
+# Original Files with Sensitive Data
+BidManagement_Reporting.json
+supabase_bid_management_schema.sql
+
+# Documentation with Sensitive Info
+*_original.*
+*_backup.* 

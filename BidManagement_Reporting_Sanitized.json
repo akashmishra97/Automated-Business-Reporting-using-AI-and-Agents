@@ -1,0 +1,917 @@
+{
+  "name": "Siemens Energy Bid Management Intelligence Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtHour": 8
+            }
+          ]
+        }
+      },
+      "id": "2627bc5b-f14e-4858-bd88-8127e12ccaef",
+      "name": "Weekly Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [
+        0,
+        0
+      ],
+      "typeVersion": 1.2
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n    b.bid_id,\n    b.bid_name,\n    b.client_name,\n    b.bid_value,\n    b.estimated_cost,\n    b.actual_cost_to_date,\n    b.win_probability,\n    b.bid_status,\n    b.submission_deadline,\n    b.created_date,\n    b.bid_stage,\n    b.team_lead,\n    b.risk_level,\n    b.compliance_status,\n    ROUND((b.bid_value - b.estimated_cost), 0) AS potential_profit,\n    ROUND(((b.bid_value - b.estimated_cost) / b.bid_value * 100), 2) AS profit_margin_percent,\n    b.project_type,\n    b.sector,\n    b.region\nFROM\n    bids b\nWHERE\n    b.bid_status IN ('Active', 'In Progress', 'Under Review')\n    AND b.created_date >= CURRENT_DATE - INTERVAL '30 days'\nORDER BY\n    b.submission_deadline ASC;",
+        "options": {}
+      },
+      "id": "ffe81f07-539c-4981-a005-144207e25f0f",
+      "name": "Active Bids Overview",
+      "type": "n8n-nodes-base.postgres",
+      "position": [
+        700,
+        240
+      ],
+      "retryOnFail": false,
+      "typeVersion": 2.4,
+      "credentials": {
+        "postgres": {
+          "id": "YOUR_POSTGRES_CREDENTIAL_ID",
+          "name": "Postgres Database"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "95c03b26-b444-4da8-b933-d6a10747bc76",
+      "name": "Loop Over Items",
+      "type": "n8n-nodes-base.splitInBatches",
+      "position": [
+        20,
+        440
+      ],
+      "typeVersion": 3
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "e195a4f2-393c-4cec-a771-b2f2951e49d3",
+              "name": "Bid Manager",
+              "value": "={{ $json['Bid Manager'] }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "ab691ea4-bf3b-4a97-a464-7d3abcfefc41",
+      "name": "BidManagerData",
+      "type": "n8n-nodes-base.set",
+      "position": [
+        1160,
+        0
+      ],
+      "typeVersion": 3.4
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "2dba8cb2-107c-4058-8467-c0a14eefb33e",
+      "name": "Date & Time",
+      "type": "n8n-nodes-base.dateTime",
+      "position": [
+        320,
+        0
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get the input date from the previous node\nconst inputDateStr = $input.first().json.currentDate;\nconst inputDate = new Date(inputDateStr);\n\n// Calculate previous week\nconst previousWeek = new Date(inputDate);\npreviousWeek.setDate(previousWeek.getDate() - 7);\n\n// Extract week number and year\nconst weekNumber = getWeekNumber(previousWeek);\nconst year = previousWeek.getFullYear();\n\nfunction getWeekNumber(date) {\n  const firstDayOfYear = new Date(date.getFullYear(), 0, 1);\n  const pastDaysOfYear = (date - firstDayOfYear) / 86400000;\n  return Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7);\n}\n\nreturn [\n  {\n    json: {\n      previousWeek: weekNumber.toString(),\n      year: year.toString(),\n      weekStartDate: previousWeek.toISOString().split('T')[0]\n    }\n  }\n];"
+      },
+      "id": "cb3768e9-0e69-4670-8fe4-bcfecb592bee",
+      "name": "PreviousWeek",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        580,
+        0
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "c4a6c71a-0df4-49df-9068-f039ddf7d507",
+              "name": "BidManager",
+              "type": "string",
+              "value": "={{ $('BidManagerData').item.json['Bid Manager'] }}"
+            },
+            {
+              "id": "ade95a85-baa2-4f5d-a125-7360b17cf99b",
+              "name": "previousWeek",
+              "type": "string",
+              "value": "={{ $('PreviousWeek').item.json.previousWeek }}"
+            },
+            {
+              "id": "36c1d772-5bb7-47a6-81f9-1b70208e558b",
+              "name": "year",
+              "type": "string",
+              "value": "={{ $('PreviousWeek').item.json.year }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "dbb54a5a-8c36-4d93-89ac-04ebfb4b05c7",
+      "name": "Selected Bid Manager",
+      "type": "n8n-nodes-base.set",
+      "position": [
+        320,
+        460
+      ],
+      "typeVersion": 3.4
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT DISTINCT\n    b.team_lead AS \"Bid Manager\"\nFROM\n    bids b\nWHERE\n    b.bid_status IN ('Active', 'In Progress', 'Under Review', 'Submitted')\n    AND b.created_date >= CURRENT_DATE - INTERVAL '90 days'\nORDER BY\n    b.team_lead;",
+        "options": {}
+      },
+      "id": "a306273e-fabb-49b0-a22b-5c94d3f303f1",
+      "name": "Get Active Bid Managers",
+      "type": "n8n-nodes-base.postgres",
+      "position": [
+        860,
+        0
+      ],
+      "typeVersion": 2.4,
+      "credentials": {
+        "postgres": {
+          "id": "YOUR_POSTGRES_CREDENTIAL_ID",
+          "name": "Postgres Database"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "d7a13ce7-24d3-406a-934b-97f9a47b206c",
+              "operator": {
+                "name": "filter.operator.equals",
+                "type": "string",
+                "operation": "equals"
+              },
+              "leftValue": "={{ $json['Bid Manager'] }}",
+              "rightValue": "Bid Manager Name"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "40bfed2c-0caa-412f-9be5-f71541746931",
+      "name": "Filter",
+      "type": "n8n-nodes-base.filter",
+      "position": [
+        1440,
+        0
+      ],
+      "typeVersion": 2.2
+    },
+    {
+      "parameters": {
+        "html": "{{ $json.html }}"
+      },
+      "id": "c2e1f03e-c8bb-4ea6-870c-a85c1216e648",
+      "name": "HTML",
+      "type": "n8n-nodes-base.html",
+      "position": [
+        1640,
+        1080
+      ],
+      "typeVersion": 1.2
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = items;\n\n// Get column names from the first row\nconst headers = Object.keys(rows[0].json);\n\n// Build header HTML\nlet headerHtml = headers.map(col => `<th>${col}</th>`).join('');\n\n// Build rows\nlet bodyHtml = rows.map(row => {\n  return `<tr>${headers.map(col => `<td>${row.json[col]}</td>`).join('')}</tr>`;\n}).join('');\n\n// Combine into one table\nconst tableHtml = `\n<table border=\"1\" cellpadding=\"6\" cellspacing=\"0\" style=\"border-collapse: collapse;\">\n  <thead><tr>${headerHtml}</tr></thead>\n  <tbody>${bodyHtml}</tbody>\n</table>\n`;\n\nreturn [{ json: { table: tableHtml } }];"
+      },
+      "id": "cd822a23-7201-4812-8b7e-3a3bc57b1206",
+      "name": "BidPipelineTable",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        980,
+        240
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "numberInputs": 6
+      },
+      "id": "dc359799-4ad9-4170-8330-c23fc7e3acd3",
+      "name": "Merge",
+      "type": "n8n-nodes-base.merge",
+      "position": [
+        1440,
+        460
+      ],
+      "typeVersion": 3.1
+    },
+    {
+      "parameters": {
+        "jsCode": "const table1 = $input.first().json.table; // Active Bids Overview\nconst table2 = $items(\"BidPipelineTable\")[0].json.table; // Bid Pipeline\nconst table3 = $items(\"BidProgressTable\")[0].json.table; // Bid Progress\nconst table4 = $items(\"FinancialTable\")[0].json.table; // Financial Performance\nconst table5 = $items(\"RiskTable\")[0].json.table; // Risk Assessment\nconst table6 = $items(\"TeamTable\")[0].json.table; // Team Workload\n\nconst htmlOutput = `\n<!DOCTYPE html>\n<html>\n<head>\n  <style>\n    body { font-family: Arial, sans-serif; font-size: 14px; color: #333; margin: 20px; }\n    h2 { margin-top: 30px; color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }\n    table { border-collapse: collapse; width: 100%; margin-top: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }\n    th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }\n    th { background-color: #3498db; color: white; font-weight: bold; }\n    tr:nth-child(even) { background-color: #f8f9fa; }\n    tr:hover { background-color: #e8f4fd; }\n    .status-active { color: #27ae60; font-weight: bold; }\n    .status-risk { color: #e74c3c; font-weight: bold; }\n    .status-warning { color: #f39c12; font-weight: bold; }\n    .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; }\n  </style>\n</head>\n<body>\n  <div class=\"header\">\n    <h1>Siemens Energy - Weekly Bid Management Report</h1>\n    <p>Generated on: ${new Date().toLocaleDateString()}</p>\n  </div>\n\n  <h2>Active Bids Overview</h2>\n  ${table1}\n\n  <h2>Bid Pipeline Status</h2>\n  ${table2}\n\n  <h2>Bid Progress & Milestones</h2>\n  ${table3}\n\n  <h2>Financial Performance</h2>\n  ${table4}\n\n  <h2>Risk Assessment & Compliance</h2>\n  ${table5}\n\n  <h2>Team Workload & Resource Allocation</h2>\n  ${table6}\n</body>\n</html>\n`;\n\nreturn [{ json: { html: htmlOutput } }];"
+      },
+      "id": "c466892d-147a-4bd1-ba7b-3012bf76f787",
+      "name": "Code",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        1660,
+        520
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "toRecipients": "recipient@company.com",
+        "subject": "Siemens Energy - Weekly Bid Management Intelligence Report",
+        "bodyContent": "={{ $json['Email Output'] }}",
+        "additionalFields": {
+          "bodyContentType": "html"
+        }
+      },
+      "id": "fac9f2cb-841d-482e-8b9f-62c9d2adb724",
+      "name": "Microsoft Outlook",
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "position": [
+        1740,
+        1380
+      ],
+      "webhookId": "YOUR_WEBHOOK_ID",
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = items;\n\n// Get column names from the first row\nconst headers = Object.keys(rows[0].json);\n\n// Build header HTML\nlet headerHtml = headers.map(col => `<th>${col}</th>`).join('');\n\n// Build rows\nlet bodyHtml = rows.map(row => {\n  return `<tr>${headers.map(col => `<td>${row.json[col]}</td>`).join('')}</tr>`;\n}).join('');\n\n// Combine into one table\nconst tableHtml = `\n<table border=\"1\" cellpadding=\"6\" cellspacing=\"0\" style=\"border-collapse: collapse;\">\n  <thead><tr>${headerHtml}</tr></thead>\n  <tbody>${bodyHtml}</tbody>\n</table>\n`;\n\nreturn [{ json: { table: tableHtml } }];"
+      },
+      "id": "10912564-2f7a-4b93-bc4b-fbc2fe530ca5",
+      "name": "BidProgressTable",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        960,
+        840
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = items;\n\n// Get column names from the first row\nconst headers = Object.keys(rows[0].json);\n\n// Build header HTML\nlet headerHtml = headers.map(col => `<th>${col}</th>`).join('');\n\n// Build rows\nlet bodyHtml = rows.map(row => {\n  return `<tr>${headers.map(col => `<td>${row.json[col]}</td>`).join('')}</tr>`;\n}).join('');\n\n// Combine into one table\nconst tableHtml = `\n<table border=\"1\" cellpadding=\"6\" cellspacing=\"0\" style=\"border-collapse: collapse;\">\n  <thead><tr>${headerHtml}</tr></thead>\n  <tbody>${bodyHtml}</tbody>\n</table>\n`;\n\nreturn [{ json: { table: tableHtml } }];"
+      },
+      "id": "3dea7ca3-b988-4cbb-a921-843ab04ceb33",
+      "name": "FinancialTable",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        980,
+        440
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n    b.bid_id,\n    b.bid_name,\n    bp.milestone_name,\n    bp.milestone_status,\n    bp.due_date,\n    bp.progress_percentage,\n    bp.days_remaining,\n    bp.next_milestone,\n    bp.milestone_due_date,\n    CASE \n        WHEN bp.days_remaining <= 3 THEN 'Critical'\n        WHEN bp.days_remaining <= 7 THEN 'High'\n        WHEN bp.days_remaining <= 14 THEN 'Medium'\n        ELSE 'Low'\n    END AS urgency_level\nFROM\n    bids b\nJOIN\n    bid_progress bp ON b.bid_id = bp.bid_id\nWHERE\n    b.team_lead = '{{ $json.BidManager }}'\n    AND b.bid_status IN ('Active', 'In Progress')\n    AND bp.milestone_status != 'Completed'\nORDER BY\n    bp.days_remaining ASC;",
+        "options": {}
+      },
+      "id": "2faaad9e-9574-4ec3-abbf-718a5a3874e3",
+      "name": "Bid Progress",
+      "type": "n8n-nodes-base.postgres",
+      "position": [
+        700,
+        840
+      ],
+      "retryOnFail": false,
+      "typeVersion": 2.4,
+      "credentials": {
+        "postgres": {
+          "id": "YOUR_POSTGRES_CREDENTIAL_ID",
+          "name": "Postgres Database"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = items;\n\n// Get column names from the first row\nconst headers = Object.keys(rows[0].json);\n\n// Build header HTML\nlet headerHtml = headers.map(col => `<th>${col}</th>`).join('');\n\n// Build rows\nlet bodyHtml = rows.map(row => {\n  return `<tr>${headers.map(col => `<td>${row.json[col]}</td>`).join('')}</tr>`;\n}).join('');\n\n// Combine into one table\nconst tableHtml = `\n<table border=\"1\" cellpadding=\"6\" cellspacing=\"0\" style=\"border-collapse: collapse;\">\n  <thead><tr>${headerHtml}</tr></thead>\n  <tbody>${bodyHtml}</tbody>\n</table>\n`;\n\nreturn [{ json: { table: tableHtml } }];"
+      },
+      "id": "d6c47ee2-6ba5-4404-8baa-26b36bb9e590",
+      "name": "RiskTable",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        980,
+        620
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "amount": 1,
+        "unit": "minutes"
+      },
+      "id": "fa8efa9f-c2e3-4ab4-9b28-d3a399496d59",
+      "name": "Wait",
+      "type": "n8n-nodes-base.wait",
+      "position": [
+        1700,
+        1620
+      ],
+      "webhookId": "YOUR_WEBHOOK_ID",
+      "typeVersion": 1.1
+    },
+    {
+      "parameters": {
+        "jsCode": "let html = $input.first().json.output || '';\n\n// Remove ```html at the start and ``` at the end (if present)\nhtml = html.trim().replace(/^```html\\s*/i, '').replace(/```$/i, '');\n\nreturn [{\n  json: {\n    cleaned_html: html\n  }\n}];"
+      },
+      "id": "9f64846f-005c-43a6-8d61-03b4f282e854",
+      "name": "Bid Intelligence",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        700,
+        1300
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "b227e25f-99ce-4147-b22d-c2a6cabfcafa",
+              "name": "BidManager",
+              "type": "string",
+              "value": "={{ $('Selected Bid Manager').first().json.BidManager }}"
+            },
+            {
+              "id": "94e5a360-cbff-4498-bd75-98cafe08557b",
+              "name": "Email Output",
+              "type": "string",
+              "value": "={{ $json.cleaned_html }}"
+            },
+            {
+              "id": "20cd6408-ab44-4632-8f0a-967604f16a1c",
+              "name": "For the Week",
+              "type": "string",
+              "value": "=Week : {{ $('PreviousWeek').first().json.previousWeek }} - {{ $('PreviousWeek').first().json.year }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a6155aea-1996-424a-8758-d4454f1dc14c",
+      "name": "Email Data",
+      "type": "n8n-nodes-base.set",
+      "position": [
+        960,
+        1300
+      ],
+      "typeVersion": 3.4
+    },
+    {
+      "parameters": {},
+      "id": "07a085bf-04ea-4198-bb45-8d73f6d0f528",
+      "name": "Calculator",
+      "type": "@n8n/n8n-nodes-langchain.toolCalculator",
+      "position": [
+        660,
+        1600
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "You are a Senior Bid Management Intelligence Analyst at Siemens Energy, specializing in energy sector bid analysis and strategic decision support. You will analyze comprehensive bid management data to provide actionable intelligence for bid managers and leadership.\n\nThe sections provided to you include:\n\n1. **Active Bids Overview** - Current bid pipeline with financial metrics, win probabilities, and status tracking\n2. **Bid Pipeline Status** - Detailed view of all active opportunities and their progression stages\n3. **Bid Progress & Milestones** - Real-time tracking of proposal development, deadlines, and milestone completion\n4. **Financial Performance** - Cost analysis, profitability projections, and budget vs actual comparisons\n5. **Risk Assessment & Compliance** - Identified risks, mitigation status, and regulatory compliance tracking\n6. **Team Workload & Resource Allocation** - Team capacity, workload distribution, and resource availability\n\n*** Your Role ***\n\nYour role is to prepare a comprehensive Weekly Bid Management Intelligence Report:\n\n1. **Executive Summary**: Provide a strategic overview of the bid portfolio performance, highlighting key wins, risks, and opportunities\n\n2. **Pipeline Analysis**: Analyze the bid pipeline health, including:\n   - Total pipeline value and win probability distribution\n   - Critical deadlines and resource allocation needs\n   - Strategic opportunities and competitive positioning\n   - Pipeline conversion rates and velocity metrics\n\n3. **Financial Intelligence**: Provide detailed financial analysis including:\n   - Total bid value vs estimated costs\n   - Profitability projections and margin analysis\n   - Cost variance analysis and budget performance\n   - ROI calculations and financial risk assessment\n\n4. **Operational Performance**: Assess operational efficiency including:\n   - Milestone completion rates and deadline adherence\n   - Team workload distribution and capacity utilization\n   - Process bottlenecks and efficiency improvements\n   - Quality metrics and compliance status\n\n5. **Risk Intelligence**: Evaluate risk exposure and mitigation including:\n   - High-risk bids requiring immediate attention\n   - Compliance gaps and regulatory concerns\n   - Resource constraints and capacity risks\n   - Market and competitive risk factors\n\n6. **Strategic Recommendations**: Provide actionable recommendations for:\n   - Bid prioritization and resource allocation\n   - Risk mitigation strategies\n   - Process improvements and efficiency gains\n   - Competitive positioning and win strategy optimization\n\n**Tools**\nUse calculator tool for precise financial calculations, win probability analysis, and ROI computations\n\n**Formatting and Output**\n\nProvide output in fully responsive HTML format with professional styling, including:\n- Siemens Energy branding and color scheme (blues, grays, white)\n- Executive dashboard layout with clear sections\n- Color-coded status indicators (green for positive, red for critical, orange for attention)\n- Professional tables with proper alignment and formatting\n- Action items and recommendations clearly highlighted\n- Mobile-responsive design for executive review\n\nNumber formatting: ##,### for currency, ##.#% for percentages\n\nHere is the data:\n\nWeek : {{ $('PreviousWeek').first().json.previousWeek }}\nYear : {{ $('PreviousWeek').first().json.year }}\n\n{{ $json.html }}\n\n",
+        "options": {}
+      },
+      "id": "7132de82-bd4d-4796-ae1b-e24dc6b35ccf",
+      "name": "Bid Intelligence AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "position": [
+        220,
+        1300
+      ],
+      "typeVersion": 1.8,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {},
+      "id": "b6025e16-f221-4edc-99e4-6ee03d071730",
+      "name": "Think",
+      "type": "@n8n/n8n-nodes-langchain.toolThink",
+      "position": [
+        460,
+        1600
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-2.5-flash",
+        "options": {}
+      },
+      "id": "ce34059f-40ef-42dc-a478-094caee48e09",
+      "name": "Google Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "position": [
+        140,
+        1600
+      ],
+      "typeVersion": 1,
+      "credentials": {
+        "googlePalmApi": {
+          "id": "YOUR_GEMINI_API_CREDENTIAL_ID",
+          "name": "Google Gemini API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n    b.bid_id,\n    b.bid_name,\n    b.bid_value,\n    b.estimated_cost,\n    b.actual_cost_to_date,\n    b.win_probability,\n    b.bid_status,\n    ROUND((b.bid_value - b.estimated_cost), 0) AS potential_profit,\n    ROUND(((b.bid_value - b.estimated_cost) / b.bid_value * 100), 2) AS profit_margin_percent,\n    ROUND((b.actual_cost_to_date / b.estimated_cost * 100), 2) AS cost_variance_percent,\n    CASE \n        WHEN b.win_probability >= 80 THEN 'High'\n        WHEN b.win_probability >= 60 THEN 'Medium'\n        ELSE 'Low'\n    END AS win_probability_category\nFROM\n    bids b\nWHERE\n    b.team_lead = '{{ $json.BidManager }}'\n    AND b.bid_status IN ('Active', 'In Progress', 'Under Review')\nORDER BY\n    b.win_probability DESC;",
+        "options": {}
+      },
+      "id": "7313e466-2784-44d7-a99e-05a276f9e2f3",
+      "name": "Financial Performance",
+      "type": "n8n-nodes-base.postgres",
+      "position": [
+        700,
+        440
+      ],
+      "retryOnFail": false,
+      "typeVersion": 2.4,
+      "credentials": {
+        "postgres": {
+          "id": "YOUR_POSTGRES_CREDENTIAL_ID",
+          "name": "Postgres Database"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n    b.bid_id,\n    b.bid_name,\n    b.risk_level,\n    b.compliance_status,\n    br.risk_type,\n    br.risk_description,\n    br.impact_level,\n    br.mitigation_status,\n    br.mitigation_actions,\n    br.due_date,\n    CASE \n        WHEN br.impact_level = 'High' AND br.mitigation_status != 'Completed' THEN 'Critical'\n        WHEN br.impact_level = 'Medium' AND br.mitigation_status != 'Completed' THEN 'High'\n        ELSE 'Low'\n    END AS priority_level\nFROM\n    bids b\nJOIN\n    bid_risks br ON b.bid_id = br.bid_id\nWHERE\n    b.team_lead = '{{ $json.BidManager }}'\n    AND b.bid_status IN ('Active', 'In Progress')\n    AND br.mitigation_status != 'Completed'\nORDER BY\n    br.impact_level DESC, br.due_date ASC;",
+        "options": {}
+      },
+      "id": "6f4d0ee5-f35f-4efa-ac4d-bc59fa1fbf37",
+      "name": "Risk Assessment",
+      "type": "n8n-nodes-base.postgres",
+      "position": [
+        680,
+        620
+      ],
+      "retryOnFail": false,
+      "typeVersion": 2.4,
+      "credentials": {
+        "postgres": {
+          "id": "YOUR_POSTGRES_CREDENTIAL_ID",
+          "name": "Postgres Database"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n    tm.team_member_name,\n    tm.role,\n    tm.current_workload_percent,\n    tm.available_capacity,\n    COUNT(DISTINCT b.bid_id) AS assigned_bids,\n    tm.skills,\n    tm.availability_status,\n    CASE \n        WHEN tm.current_workload_percent >= 90 THEN 'Overloaded'\n        WHEN tm.current_workload_percent >= 75 THEN 'High'\n        WHEN tm.current_workload_percent >= 50 THEN 'Medium'\n        ELSE 'Available'\n    END AS workload_status\nFROM\n    team_members tm\nLEFT JOIN\n    bid_team_assignments bta ON tm.team_member_id = bta.team_member_id\nLEFT JOIN\n    bids b ON bta.bid_id = b.bid_id AND b.bid_status IN ('Active', 'In Progress')\nWHERE\n    tm.bid_manager = '{{ $json.BidManager }}'\nGROUP BY\n    tm.team_member_id, tm.team_member_name, tm.role, tm.current_workload_percent, tm.available_capacity, tm.skills, tm.availability_status\nORDER BY\n    tm.current_workload_percent DESC;",
+        "options": {}
+      },
+      "id": "b7c144df-6197-4f7f-83ee-16e0b292c338",
+      "name": "Team Workload",
+      "type": "n8n-nodes-base.postgres",
+      "position": [
+        700,
+        1040
+      ],
+      "retryOnFail": false,
+      "typeVersion": 2.4,
+      "credentials": {
+        "postgres": {
+          "id": "YOUR_POSTGRES_CREDENTIAL_ID",
+          "name": "Postgres Database"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = items;\n\n// Get column names from the first row\nconst headers = Object.keys(rows[0].json);\n\n// Build header HTML\nlet headerHtml = headers.map(col => `<th>${col}</th>`).join('');\n\n// Build rows\nlet bodyHtml = rows.map(row => {\n  return `<tr>${headers.map(col => `<td>${row.json[col]}</td>`).join('')}</tr>`;\n}).join('');\n\n// Combine into one table\nconst tableHtml = `\n<table border=\"1\" cellpadding=\"6\" cellspacing=\"0\" style=\"border-collapse: collapse;\">\n  <thead><tr>${headerHtml}</tr></thead>\n  <tbody>${bodyHtml}</tbody>\n</table>\n`;\n\nreturn [{ json: { table: tableHtml } }];"
+      },
+      "id": "9dc710c1-7bfd-441c-b0a6-18e1dab6cc41",
+      "name": "TeamTable",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        960,
+        1040
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "sendTo": "recipient@company.com",
+        "subject": "Siemens Energy - Weekly Bid Management Intelligence Report",
+        "message": "={{ $json['Email Output'] }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1280,
+        1300
+      ],
+      "id": "7258c195-2c96-4d79-9a16-430eb503096c",
+      "name": "Gmail",
+      "webhookId": "YOUR_WEBHOOK_ID",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "YOUR_GMAIL_CREDENTIAL_ID",
+          "name": "Gmail Account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Weekly Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Date & Time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Active Bids Overview": {
+      "main": [
+        [
+          {
+            "node": "BidPipelineTable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Selected Bid Manager",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BidManagerData": {
+      "main": [
+        [
+          {
+            "node": "Filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Date & Time": {
+      "main": [
+        [
+          {
+            "node": "PreviousWeek",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PreviousWeek": {
+      "main": [
+        [
+          {
+            "node": "Get Active Bid Managers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Selected Bid Manager": {
+      "main": [
+        [
+          {
+            "node": "Active Bids Overview",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Financial Performance",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Risk Assessment",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Bid Progress",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Team Workload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Active Bid Managers": {
+      "main": [
+        [
+          {
+            "node": "BidManagerData",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTML": {
+      "main": [
+        [
+          {
+            "node": "Bid Intelligence AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BidPipelineTable": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Microsoft Outlook": {
+      "main": [
+        []
+      ]
+    },
+    "BidProgressTable": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "FinancialTable": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "Bid Progress": {
+      "main": [
+        [
+          {
+            "node": "BidProgressTable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RiskTable": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 4
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bid Intelligence": {
+      "main": [
+        [
+          {
+            "node": "Email Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Data": {
+      "main": [
+        [
+          {
+            "node": "Gmail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculator": {
+      "ai_tool": [
+        [
+          {
+            "node": "Bid Intelligence AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bid Intelligence AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Bid Intelligence",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Think": {
+      "ai_tool": [
+        [
+          {
+            "node": "Bid Intelligence AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Bid Intelligence AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Financial Performance": {
+      "main": [
+        [
+          {
+            "node": "FinancialTable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Risk Assessment": {
+      "main": [
+        [
+          {
+            "node": "RiskTable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Team Workload": {
+      "main": [
+        [
+          {
+            "node": "TeamTable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TeamTable": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 5
+          }
+        ]
+      ]
+    },
+    "Gmail": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  ],
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "8238e383-3211-4d26-b002-f7682312df17",
+  "meta": {
+    "instanceId": "205af6a72ed6a65c1ccb68ad7195709429e6b75b071c2f939deb07c2ed9e10fa"
+  },
+  "id": "2EgRlkz5sKytzVDC",
+  "tags": []
+} 
